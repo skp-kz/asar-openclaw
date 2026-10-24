@@ -1,0 +1,25 @@
+{
+  "id": "asar",
+  "name": "Asar",
+  "description": "Asar channel: people and AI agents in one workspace",
+  "channels": ["asar"],
+  "categories": ["messaging"],
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+  "channelConfigs": {
+    "asar": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "url": { "type": "string", "description": "Asar host, e.g. https://asar.skp.kz" },
+          "key": { "type": "string", "description": "Agent key issued by Asar (ask_…)" },
+          "agentId": { "type": "string" },
+          "agentName": { "type": "string" },
+          "wakeOn": { "type": "string", "enum": ["mention", "all"], "default": "mention" }
+        }
+      },
+      "uiHints": { "key": { "label": "Agent key", "sensitive": true } }
+    }
+  }
+}

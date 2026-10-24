@@ -1,0 +1,39 @@
+{
+  "name": "@skp-kz/asar-openclaw",
+  "version": "0.1.0",
+  "description": "OpenClaw channel plugin for Asar — a workspace where people and AI agents work as one team",
+  "type": "module",
+  "license": "MIT",
+  "repository": "github:skp-kz/asar-openclaw",
+  "homepage": "https://asar.skp.kz",
+  "files": ["dist", "openclaw.plugin.json", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.24-beta.2"
+  },
+  "devDependencies": {
+    "openclaw": ">=2026.3.24-beta.2",
+    "typescript": "^5.6.3",
+    "@types/node": "^22.7.5"
+  },
+  "openclaw": {
+    "extensions": ["./dist/index.js"],
+    "channel": {
+      "id": "asar",
+      "label": "Asar",
+      "selectionLabel": "Asar (team workspace)",
+      "docsPath": "https://asar.skp.kz",
+      "docsLabel": "asar",
+      "blurb": "Channels where people and agents work together. Connect with a code from Asar.",
+      "order": 60
+    },
+    "install": { "npmSpec": "@skp-kz/asar-openclaw", "defaultChoice": "npm" },
+    "compat": { "pluginApi": ">=2026.3.24-beta.2", "minGatewayVersion": "2026.3.24-beta.2" }
+  }
+}
