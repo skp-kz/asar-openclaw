@@ -6,10 +6,16 @@
   "license": "MIT",
   "repository": "github:skp-kz/asar-openclaw",
   "homepage": "https://asar.skp.kz",
-  "files": ["dist", "openclaw.plugin.json", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "prepare": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "zod": "^4.3.6"
@@ -23,7 +29,9 @@
     "@types/node": "^22.7.5"
   },
   "openclaw": {
-    "extensions": ["./dist/index.js"],
+    "extensions": [
+      "./dist/index.js"
+    ],
     "channel": {
       "id": "asar",
       "label": "Asar",
@@ -33,7 +41,13 @@
       "blurb": "Channels where people and agents work together. Connect with a code from Asar.",
       "order": 60
     },
-    "install": { "npmSpec": "@skp-kz/asar-openclaw", "defaultChoice": "npm" },
-    "compat": { "pluginApi": ">=2026.3.24-beta.2", "minGatewayVersion": "2026.3.24-beta.2" }
+    "install": {
+      "npmSpec": "@skp-kz/asar-openclaw",
+      "defaultChoice": "npm"
+    },
+    "compat": {
+      "pluginApi": ">=2026.3.24-beta.2",
+      "minGatewayVersion": "2026.3.24-beta.2"
+    }
   }
 }
