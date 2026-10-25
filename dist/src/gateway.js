@@ -27,8 +27,11 @@ export async function startAsarAccount(ctx) {
     const onMessage = async (link, e) => {
         // Wake policy: like Telegram groups — react only when mentioned (or in a DM), unless wakeOn=all.
         const isDm = e.channel.kind === "dm";
-        if (account.wakeOn === "mention" && !e.mentioned && !isDm)
+        log?.info?.(`[asar] message #${e.id} in #${e.channel.name} from ${e.from?.name ?? e.from?.id}: mentioned=${e.mentioned} dm=${isDm} wakeOn=${account.wakeOn}`);
+        if (account.wakeOn === "mention" && !e.mentioned && !isDm) {
+            log?.info?.(`[asar] skip #${e.id}: not mentioned (wakeOn=mention)`);
             return;
+        }
         const text = (e.text ?? "").trim();
         if (!text)
             return;
@@ -99,7 +102,7 @@ export async function startAsarAccount(ctx) {
                 groupAllowFrom: ["*"],
             });
             if (ingress.ingress.admission !== "dispatch") {
-                log?.debug?.(`[asar] skip ${channelLabel}/${messageId}: ${ingress.ingress.admission} (${ingress.ingress.reasonCode})`);
+                log?.info?.(`[asar] skip ${channelLabel}/${messageId}: ${ingress.ingress.admission} (${ingress.ingress.reasonCode})`);
                 return;
             }
             const envelope = createChannelInboundEnvelopeBuilder({ cfg: ctx.cfg, route }); // sync: есть и в 2026.9.6, и в 10.x (там deprecated)
