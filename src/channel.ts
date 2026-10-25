@@ -1,118 +1,137 @@
-// Asar channel plugin for OpenClaw. Shape follows the bundled Nostr plugin (extensions/nostr/src/channel.ts):
-// gateway.startAccount opens the outbound link, inbound events go to runtime.channel.reply.handleInboundMessage,
-// outbound.sendText posts back over the same socket. No inbound ports, no webhooks.
-import { buildChannelConfigSchema, DEFAULT_ACCOUNT_ID, type ChannelPlugin } from "openclaw/plugin-sdk";
-import { z } from "zod";
-import { AsarLink, type AsarMessageEvent } from "./link.js";
-import { getRuntime } from "./runtime.js";
+// Asar channel plugin for OpenClaw (plugin SDK 2026.10). Shape follows the bundled Nostr plugin:
+// createChatChannelPlugin({ base, security, outbound }) with top-level single-account config,
+// outbound.sendText posting over the live AsarLink, gateway.startAccount in ./gateway.ts.
+import { createTopLevelChannelConfigAdapter, createScopedDmSecurityResolver } from "openclaw/plugin-sdk/channel-config-helpers";
+import type { ChannelOutboundAdapter } from "openclaw/plugin-sdk/channel-contract";
+import { createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
+import { createChannelMessageAdapterFromOutbound } from "openclaw/plugin-sdk/channel-outbound";
+import { buildChannelConfigSchema, DEFAULT_ACCOUNT_ID, type ChannelPlugin } from "openclaw/plugin-sdk/channel-plugin-common";
+import { attachChannelToResult } from "openclaw/plugin-sdk/channel-send-result";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { collectStatusIssuesFromLastError, createComputedAccountStatusAdapter, createDefaultChannelRuntimeState } from "openclaw/plugin-sdk/status-helpers";
+import { chunkTextForOutbound } from "openclaw/plugin-sdk/text-chunking";
+import { getLink, startAsarAccount } from "./gateway.js";
+import { ASAR_CHANNEL_ID, AsarConfigSchema, resolveAsarAccount, type ResolvedAsarAccount } from "./types.js";
 
-export const AsarConfigSchema = z.object({
-  url: z.string().default("https://asar.skp.kz"),
-  key: z.string().optional(),
-  agentId: z.string().optional(),
-  agentName: z.string().optional(),
-  wakeOn: z.enum(["mention", "all"]).default("mention"),
-  enabled: z.boolean().default(true),
-}).passthrough();
+export { getLink } from "./gateway.js";
+export { AsarConfigSchema, resolveAsarAccount, type ResolvedAsarAccount } from "./types.js";
 
-export type ResolvedAsarAccount = {
-  accountId: string; name: string; enabled: boolean; configured: boolean;
-  url: string; key: string; agentId: string; wakeOn: "mention" | "all";
+const normalizeTarget = (target: string) => target.replace(/^asar:/i, "").replace(/^#/, "").trim();
+
+const asarOutbound: ChannelOutboundAdapter = {
+  deliveryMode: "direct",
+  textChunkLimit: 8000,
+  chunker: chunkTextForOutbound,
+  sendText: async ({ to, text, accountId }) => {
+    const link = getLink(accountId ?? DEFAULT_ACCOUNT_ID);
+    if (!link) throw new Error("asar: link not running (is the channel enabled and connected?)");
+    const channel = normalizeTarget(String(to));
+    const posted = await link.post(channel, text ?? "", null);
+    return attachChannelToResult(ASAR_CHANNEL_ID, { to: channel, messageId: String(posted.id) });
+  },
 };
 
-export function resolveAsarAccount({ cfg, accountId }: { cfg: any; accountId?: string | null }): ResolvedAsarAccount {
-  const section = (cfg?.channels?.asar ?? {}) as z.infer<typeof AsarConfigSchema>;
-  const parsed = AsarConfigSchema.safeParse(section);
-  const c = parsed.success ? parsed.data : AsarConfigSchema.parse({});
-  return {
-    accountId: accountId ?? DEFAULT_ACCOUNT_ID, name: c.agentName ?? "Asar", enabled: c.enabled !== false,
-    configured: Boolean(c.key), url: c.url, key: c.key ?? "", agentId: c.agentId ?? "", wakeOn: c.wakeOn,
-  };
-}
-
-const links = new Map<string, AsarLink>();
-export const getLink = (accountId = DEFAULT_ACCOUNT_ID) => links.get(accountId) ?? null;
-
-export const asarPlugin: ChannelPlugin<ResolvedAsarAccount> = {
-  id: "asar",
-  meta: { id: "asar", label: "Asar", selectionLabel: "Asar (team workspace)", docsPath: "https://asar.skp.kz", docsLabel: "asar", blurb: "Channels where people and agents work together.", order: 60 },
-  capabilities: { chatTypes: ["direct", "group"], media: false },
-  reload: { configPrefixes: ["channels.asar"] },
-  configSchema: buildChannelConfigSchema(AsarConfigSchema),
-
-  config: {
-    listAccountIds: () => [DEFAULT_ACCOUNT_ID],
-    resolveAccount: (cfg, accountId) => resolveAsarAccount({ cfg, accountId }),
-    defaultAccountId: () => DEFAULT_ACCOUNT_ID,
-    isConfigured: (account) => account.configured,
-    describeAccount: (account) => ({ accountId: account.accountId, name: account.name, enabled: account.enabled, configured: account.configured, url: account.url, agentId: account.agentId }),
-    resolveAllowFrom: () => ["*"], // membership is decided by Asar: the agent only ever sees channels it was added to
-    formatAllowFrom: ({ allowFrom }) => allowFrom,
-  },
-
-  security: {
-    resolveDmPolicy: () => ({ policy: "open", allowFrom: ["*"], policyPath: "channels.asar.dmPolicy", allowFromPath: "channels.asar.allowFrom", approveHint: "", normalizeEntry: (raw: string) => raw.trim() }),
-  },
-
-  messaging: {
-    normalizeTarget: (target) => target.replace(/^#/, "").trim(),
-    targetResolver: { looksLikeId: (input) => /^#?[a-z0-9-]{2,64}$/i.test(input.trim()), hint: "<channel-id | #channel>" },
-  },
-
-  outbound: {
-    deliveryMode: "direct",
-    textChunkLimit: 8000,
-    sendText: async ({ to, text, accountId }) => {
-      const link = links.get(accountId ?? DEFAULT_ACCOUNT_ID);
-      if (!link) throw new Error("asar: link not running");
-      const channel = String(to).replace(/^#/, "");
-      await link.post(channel, text ?? "");
-      return { channel: "asar", to: channel };
+export const asarPlugin: ChannelPlugin<ResolvedAsarAccount> = createChatChannelPlugin<ResolvedAsarAccount>({
+  base: {
+    id: ASAR_CHANNEL_ID,
+    meta: {
+      id: ASAR_CHANNEL_ID,
+      label: "Asar",
+      selectionLabel: "Asar (team workspace)",
+      docsPath: "https://asar.skp.kz",
+      docsLabel: "asar",
+      blurb: "Channels where people and agents work together. Connect with a code from Asar.",
+      order: 60,
     },
-  },
+    capabilities: { chatTypes: ["direct", "group"], media: false },
+    reload: { configPrefixes: [`channels.${ASAR_CHANNEL_ID}`] },
+    // Cast: openclaw ships its own nested zod copy (4.6.5) and the two `ZodTypeAny` declarations are not
+    // mutually assignable even for the same schema; at runtime buildChannelConfigSchema only needs `_zod`/`safeParse`.
+    configSchema: buildChannelConfigSchema(AsarConfigSchema as unknown as Parameters<typeof buildChannelConfigSchema>[0], {
+      uiHints: { key: { label: "Agent key", sensitive: true } },
+    }),
 
-  status: {
-    defaultRuntime: { accountId: DEFAULT_ACCOUNT_ID, running: false, lastStartAt: null, lastStopAt: null, lastError: null },
-    collectStatusIssues: (accounts) => accounts.flatMap((a) => (a.lastError ? [{ channel: "asar", accountId: a.accountId, kind: "runtime" as const, message: `Asar: ${a.lastError}` }] : [])),
-    buildChannelSummary: ({ snapshot }) => ({ configured: snapshot.configured ?? false, running: snapshot.running ?? false, lastStartAt: snapshot.lastStartAt ?? null, lastStopAt: snapshot.lastStopAt ?? null, lastError: snapshot.lastError ?? null }),
-    buildAccountSnapshot: ({ account, runtime }) => ({ accountId: account.accountId, name: account.name, enabled: account.enabled, configured: account.configured, url: account.url, agentId: account.agentId, running: runtime?.running ?? false, lastStartAt: runtime?.lastStartAt ?? null, lastStopAt: runtime?.lastStopAt ?? null, lastError: runtime?.lastError ?? null }),
-  },
+    config: {
+      ...createTopLevelChannelConfigAdapter<ResolvedAsarAccount>({
+        sectionKey: ASAR_CHANNEL_ID,
+        resolveAccount: (cfg: OpenClawConfig) => resolveAsarAccount({ cfg }),
+        listAccountIds: () => [DEFAULT_ACCOUNT_ID],
+        defaultAccountId: () => DEFAULT_ACCOUNT_ID,
+        deleteMode: "clear-fields",
+        clearBaseFields: ["url", "key", "agentId", "agentName", "wakeOn"],
+        // Membership is decided by Asar: the agent only ever sees channels it was added to.
+        resolveAllowFrom: () => ["*"],
+        formatAllowFrom: (allowFrom) => allowFrom.map(String),
+      }),
+      resolveAccount: (cfg, accountId) => resolveAsarAccount({ cfg, accountId }),
+      isEnabled: (account) => account.enabled,
+      isConfigured: (account) => account.configured,
+      unconfiguredReason: () => "no agent key — run `openclaw asar connect <code>`",
+      describeAccount: (account) => ({
+        accountId: account.accountId,
+        name: account.name,
+        enabled: account.enabled,
+        configured: account.configured,
+        url: account.url,
+        agentId: account.agentId,
+        wakeOn: account.wakeOn,
+      }),
+    },
 
-  gateway: {
-    startAccount: async (ctx) => {
-      const account = ctx.account;
-      if (!account.configured) throw new Error("Asar: no key. Run `openclaw asar connect <code>` with a code from Asar → Agents.");
-      const runtime = getRuntime();
-      ctx.log?.info(`[asar] connecting to ${account.url} as ${account.agentId || "?"}`);
+    messaging: {
+      targetPrefixes: [ASAR_CHANNEL_ID],
+      normalizeTarget,
+      targetResolver: {
+        looksLikeId: (input) => /^(asar:)?#?[a-z0-9_-]{2,64}$/i.test(input.trim()),
+        hint: "<channel-id | #channel>",
+      },
+    },
 
-      const link = new AsarLink(account.url, account.key, {
-        log: { info: (m) => ctx.log?.info(m), warn: (m) => ctx.log?.warn(m), debug: (m) => ctx.log?.debug(m) },
-        onHello: (h) => { ctx.setStatus({ accountId: account.accountId, agentId: h.agent.id, name: h.agent.name }); ctx.log?.info(`[asar] hello: ${h.agent.name}, ${h.channels.length} channel(s)`); },
-        onState: (s, d) => ctx.log?.debug(`[asar] ${s} ${d ?? ""}`),
-        onMessage: async (e: AsarMessageEvent) => {
-          // Wake policy: like Telegram groups — reply only when mentioned (or DM), unless wakeOn=all.
-          if (account.wakeOn === "mention" && !e.mentioned && e.channel.kind !== "dm") return;
-          const chatType = e.channel.kind === "dm" ? "direct" : "group";
-          link.status("working");
-          try {
-            await runtime.channel.reply.handleInboundMessage({
-              channel: "asar",
-              accountId: account.accountId,
-              senderId: e.from.id,
-              senderName: e.from.name,
-              chatType,
-              chatId: e.channel.id,
-              groupName: chatType === "group" ? "#" + e.channel.name : undefined,
-              text: e.text,
-              messageId: String(e.id),
-              reply: async (responseText: string) => { await link.post(e.channel.id, responseText, null); },
-            });
-          } finally { link.status("on"); }
+    message: createChannelMessageAdapterFromOutbound({ id: ASAR_CHANNEL_ID, outbound: asarOutbound }),
+
+    status: createComputedAccountStatusAdapter<ResolvedAsarAccount>({
+      defaultRuntime: createDefaultChannelRuntimeState(DEFAULT_ACCOUNT_ID),
+      collectStatusIssues: (accounts) => collectStatusIssuesFromLastError(ASAR_CHANNEL_ID, accounts),
+      buildChannelSummary: ({ snapshot }) => ({
+        configured: snapshot.configured ?? false,
+        running: snapshot.running ?? false,
+        connected: snapshot.connected ?? false,
+        lastStartAt: snapshot.lastStartAt ?? null,
+        lastStopAt: snapshot.lastStopAt ?? null,
+        lastError: snapshot.lastError ?? null,
+      }),
+      resolveAccountSnapshot: ({ account }) => ({
+        accountId: account.accountId,
+        name: account.name,
+        enabled: account.enabled,
+        configured: account.configured,
+        extra: {
+          url: account.url,
+          agentId: account.agentId,
+          wakeOn: account.wakeOn,
+          online: getLink(account.accountId)?.online ?? false,
         },
-      });
-      link.start();
-      links.set(account.accountId, link);
-      return { stop: () => { link.stop(); links.delete(account.accountId); ctx.log?.info("[asar] stopped"); } };
+      }),
+    }),
+
+    gateway: {
+      startAccount: startAsarAccount,
     },
   },
-};
+
+  // DMs are always open: Asar itself decides who can talk to the agent.
+  security: {
+    resolveDmPolicy: createScopedDmSecurityResolver<ResolvedAsarAccount>({
+      channelKey: ASAR_CHANNEL_ID,
+      resolvePolicy: () => "open",
+      resolveAllowFrom: () => ["*"],
+      policyPathSuffix: "dmPolicy",
+      allowFromPathSuffix: "allowFrom",
+      defaultPolicy: "open",
+      approveHint: "",
+      normalizeEntry: (raw) => raw.trim(),
+    }),
+  },
+
+  outbound: asarOutbound,
+});
