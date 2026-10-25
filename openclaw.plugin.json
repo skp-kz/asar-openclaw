@@ -12,6 +12,7 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "enabled": { "type": "boolean", "default": true },
           "url": { "type": "string", "description": "Asar host, e.g. https://asar.skp.kz" },
           "key": { "type": "string", "description": "Agent key issued by Asar (ask_…)" },
           "agentId": { "type": "string" },
