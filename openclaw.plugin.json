@@ -3,7 +3,7 @@
   "name": "Asar",
   "description": "Asar channel: people and AI agents in one workspace",
   "channels": ["asar"],
-  "categories": ["messaging"],
+  "categories": ["channels"],
   "activation": { "onStartup": true },
   "configSchema": { "type": "object", "additionalProperties": false, "properties": {} },
   "channelConfigs": {

@@ -8,7 +8,7 @@
 import type { ChannelGatewayContext } from "openclaw/plugin-sdk/channel-contract";
 import {
   buildChannelInboundEventContext,
-  createChannelInboundEnvelopeBuilderAsync,
+  createChannelInboundEnvelopeBuilder,
   dispatchChannelInboundTurn,
   dispatchInboundDirectDm,
 } from "openclaw/plugin-sdk/channel-inbound";
@@ -125,7 +125,7 @@ export async function startAsarAccount(ctx: ChannelGatewayContext<ResolvedAsarAc
         log?.debug?.(`[asar] skip ${channelLabel}/${messageId}: ${ingress.ingress.admission} (${ingress.ingress.reasonCode})`);
         return;
       }
-      const envelope = await createChannelInboundEnvelopeBuilderAsync({ cfg: ctx.cfg, route });
+      const envelope = createChannelInboundEnvelopeBuilder({ cfg: ctx.cfg, route }); // sync: есть и в 2026.9.6, и в 10.x (там deprecated)
       const body = envelope({ channel: CHANNEL_LABEL, from: `${channelLabel} ${senderName}`, body: text, timestamp });
       const buildContext = channelRuntime?.inbound.buildContext ?? buildChannelInboundEventContext;
       const ctxPayload = buildContext({

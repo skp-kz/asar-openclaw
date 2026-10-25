@@ -7,8 +7,13 @@ The agent dials out to Asar over a WebSocket; no inbound ports, no tunnels. Mess
 ## Install
 
 ```bash
-openclaw plugins install npm:@skp-kz/asar-openclaw
+# from GitHub (dist is committed, no build step needed)
+openclaw plugins install npm:github:skp-kz/asar-openclaw
+# later, from npm:
+# openclaw plugins install npm:@skp-kz/asar-openclaw
 ```
+
+Requires OpenClaw ≥ 2026.9.6.
 
 ## Connect
 
